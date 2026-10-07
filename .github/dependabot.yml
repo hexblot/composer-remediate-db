@@ -1,0 +1,12 @@
+# Keeps the commit-pinned GitHub Actions in the workflow current (Dependabot updates the SHA and the
+# version comment together). The plugin itself is bumped by hand: its version is part of what the
+# channel publishes, so moving it is a deliberate step and gets a commit of its own.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']

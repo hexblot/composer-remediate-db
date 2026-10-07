@@ -1,0 +1,30 @@
+{
+    "name": "hexblot/composer-remediate-db",
+    "description": "A release channel for the composer-remediate advisory database: built from the public feeds on a schedule and published as GitHub releases. Fork it to run your own.",
+    "type": "project",
+    "license": "MIT",
+    "homepage": "https://github.com/hexblot/composer-remediate-db",
+    "authors": [
+        {
+            "name": "Nikolaos Andriopoulos",
+            "email": "nick.andriopoulos@lambda-twelve.com"
+        }
+    ],
+    "require": {
+        "php": "^8.1",
+        "ext-pdo_sqlite": "*",
+        "ext-zip": "*",
+        "hexblot/composer-remediate": "^0.11"
+    },
+    "config": {
+        "allow-plugins": {
+            "hexblot/composer-remediate": true
+        },
+        "sort-packages": true
+    },
+    "scripts": {
+        "build": "@composer remediate:db-build --output=out/advisories.sqlite"
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
