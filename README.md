@@ -72,7 +72,8 @@ dated releases are no longer created there.
 5. Point your projects at your fork's `advisory-db-latest` URL as above. For a database you do not
    publish yourself, pin the digest you trust with `--database-sha256`.
 
-To move the plugin version the channel builds with, change the constraint in `composer.json`; the
+The plugin version is pinned exactly in `composer.json`, so what builds the database changes only when
+someone changes it: bump the pin to move the channel to a newer plugin. The
 version used is recorded in every `latest.json` as `built_with`.
 
 ## Licences
