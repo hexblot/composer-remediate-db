@@ -42,7 +42,7 @@ final class BuildCommand extends Command
                 new InputOption('enrich', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Exploit data to attach to the CVEs: epss (FIRST exploit probability), kev (CISA Known Exploited Vulnerabilities), or none (repeatable; default both)'),
                 new InputOption('epss-file', null, InputOption::VALUE_REQUIRED, 'Local copy of the EPSS scores CSV (plain or .gz) to read instead of downloading'),
                 new InputOption('kev-file', null, InputOption::VALUE_REQUIRED, 'Local copy of the CISA KEV catalogue JSON to read instead of downloading'),
-                new InputOption('temp-dir', null, InputOption::VALUE_REQUIRED, 'Where downloaded archives are unpacked', sys_get_temp_dir() . '/composer-remediate-db'),
+                new InputOption('temp-dir', null, InputOption::VALUE_REQUIRED, 'Where downloaded archives are kept while they are read (default: a fresh private directory under the system temporary directory, removed afterwards)'),
             ])
             ->setHelp(<<<'HELP'
 Pulls every advisory for the Packagist ecosystem from the selected feeds (plus any <info>--include</info>
@@ -66,10 +66,10 @@ HELP);
         $str = static fn (string $name): ?string => is_string($v = $input->getOption($name)) && $v !== '' ? $v : null;
         $list = static fn (string $name): array => array_values(array_filter(array_map('strval', (array) $input->getOption($name)), static fn (string $v): bool => $v !== ''));
         $path = (string) $input->getOption('output');
-        $tempDir = (string) $input->getOption('temp-dir');
 
         $downloader = (new OperatorConfiguration())->httpDownloader();
         try {
+            $tempDir = self::temporaryDirectory($str('temp-dir'));
             $sources = Feeds::sources($downloader, $tempDir, $list('source'), $str('friendsofphp-path'), $list('include'));
             $enrichments = Feeds::enrichments($downloader, $tempDir, $list('enrich'), $str('epss-file'), $str('kev-file'));
         } catch (\InvalidArgumentException $e) {
@@ -87,6 +87,10 @@ HELP);
             $errors->writeln('<error>Build failed: ' . self::safe($e->getMessage()) . '</error>');
 
             return self::EXIT_FAILED;
+        } finally {
+            if ($str('temp-dir') === null) {
+                self::remove($tempDir);
+            }
         }
 
         $output->writeln(sprintf('<info>Advisory database written:</info> %s', $result['path']));
@@ -101,6 +105,49 @@ HELP);
         $output->writeln(sprintf('Use it with: <comment>composer remediate --database-location=%s</comment>', $result['path']));
 
         return 0;
+    }
+
+    /**
+     * Where the archives a feed downloads are unpacked. The feed readers name their files predictably
+     * inside it, so the directory itself has to be one nobody else can have prepared: by default a
+     * fresh directory created here, owner-only, that did not exist a moment ago; when the operator
+     * names one, a directory that is not a symbolic link and that this process could create or
+     * already owns.
+     *
+     * @throws \InvalidArgumentException for a directory this will not write into
+     */
+    private static function temporaryDirectory(?string $requested): string
+    {
+        if ($requested === null) {
+            $dir = sys_get_temp_dir() . '/composer-remediate-db-' . bin2hex(random_bytes(8));
+            if (!@mkdir($dir, 0700)) {
+                throw new \InvalidArgumentException(sprintf('Cannot create a temporary directory at %s; pass --temp-dir.', $dir));
+            }
+
+            return $dir;
+        }
+        if (is_link($requested)) {
+            throw new \InvalidArgumentException(sprintf('--temp-dir=%s is a symbolic link; name the directory itself.', $requested));
+        }
+        if (!is_dir($requested) && !@mkdir($requested, 0700, true)) {
+            throw new \InvalidArgumentException(sprintf('Cannot create --temp-dir=%s.', $requested));
+        }
+        if (!is_writable($requested) || (function_exists('posix_geteuid') && fileowner($requested) !== posix_geteuid())) {
+            throw new \InvalidArgumentException(sprintf('--temp-dir=%s is not a directory this process owns and can write to.', $requested));
+        }
+
+        return $requested;
+    }
+
+    private static function remove(string $dir): void
+    {
+        if (!is_dir($dir)) {
+            return;
+        }
+        foreach (new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($dir, \FilesystemIterator::SKIP_DOTS), \RecursiveIteratorIterator::CHILD_FIRST) as $file) {
+            $file->isDir() ? @rmdir($file->getPathname()) : @unlink($file->getPathname());
+        }
+        @rmdir($dir);
     }
 
     /** Console markup in text that came from a feed or a file name is not markup. */
