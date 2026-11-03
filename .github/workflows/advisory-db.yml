@@ -30,19 +30,13 @@ on:
         default: false
 
 env:
-  # What the channel is built from. Comma-separated; each list is passed to `remediate:db-build`.
+  # What the channel is built from. Comma-separated; each list is passed to `bin/build-advisory-db`.
   # Sources: packagist, osv, friendsofphp, drupal. Enrichments: epss, kev, or none.
   DB_SOURCES: packagist,osv,friendsofphp,drupal
   DB_ENRICH: epss,kev
   # JSON files under advisories/ with private advisories to carry alongside the feeds (see
   # advisories/README.md). Empty for the reference channel.
   DB_INCLUDE: ''
-  # A second repository whose `advisory-db-latest` release receives the same files. The reference
-  # channel mirrors to hexblot/composer-remediate, where clients up to 0.11 look for the database,
-  # until composer-remediate 1.0 is released. Needs the LEGACY_RELEASES_TOKEN secret (a fine-grained
-  # token with contents: write on that repository); without the secret the mirror step is skipped.
-  # Leave empty in a fork.
-  LEGACY_REPOSITORY: hexblot/composer-remediate
 
 permissions: {}
 
@@ -51,8 +45,8 @@ concurrency:
   cancel-in-progress: false
 
 # The build holds no credentials that can change anything. It resolves Composer dependencies, runs the
-# plugin's build command and reads the upstream feeds, none of which should ever be a step away from
-# the token that publishes a release. Everything it produces is handed to the publish job as an
+# build command and reads the upstream feeds, none of which should ever be a step away from the token
+# that publishes a release. Everything it produces is handed to the publish job as an
 # artifact, and that job runs nothing but the attestation action and `gh`.
 jobs:
   build:
@@ -77,7 +71,7 @@ jobs:
           php-version: '8.4'
           extensions: pdo_sqlite, zip
           tools: composer:v2
-      - name: Install the plugin
+      - name: Install
         run: composer install --no-dev --no-progress --no-interaction
       - name: Build
         id: build
@@ -87,7 +81,7 @@ jobs:
           IFS=',' read -ra list <<< "$DB_ENRICH";  for e in "${list[@]}"; do [ -n "$e" ] && args+=("--enrich=$e"); done
           IFS=',' read -ra list <<< "$DB_INCLUDE"; for i in "${list[@]}"; do [ -n "$i" ] && args+=("--include=$i"); done
           mkdir -p out
-          composer remediate:db-build --output=out/advisories.sqlite "${args[@]}"
+          php bin/build-advisory-db --output=out/advisories.sqlite "${args[@]}"
           php -r '$m = (new PDO("sqlite:out/advisories.sqlite"))->query("SELECT key, value FROM meta")->fetchAll(PDO::FETCH_KEY_PAIR); file_put_contents("out/meta.json", json_encode($m, JSON_PRETTY_PRINT));'
           jq -r .dataset_hash out/meta.json > out/hash
           (cd out && sha256sum advisories.sqlite > advisories.sqlite.sha256)   # digest + filename, so `sha256sum -c` works
@@ -213,8 +207,6 @@ jobs:
       contents: write       # gh release create / upload
       id-token: write       # build-provenance attestation
       attestations: write
-    env:
-      LEGACY_TOKEN: ${{ secrets.LEGACY_RELEASES_TOKEN }}
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -253,25 +245,6 @@ jobs:
             gh release create advisory-db-latest out/advisories.sqlite out/advisories.sqlite.sha256 out/latest.json \
               --title "Advisory database (latest)" --prerelease \
               --notes "Moving pointer to the newest advisory database ($v). Prefer the dated release URL in pinned CI configurations."
-          fi
-      # The same bytes, with the same attestation (it is keyed by digest, not by repository), to the
-      # location older clients were released with. The dated release is not mirrored: anything pinned
-      # by date from here on pins a URL in this repository.
-      - name: Mirror the latest pointer to the legacy repository
-        if: env.LEGACY_REPOSITORY != '' && env.LEGACY_TOKEN != ''
-        env:
-          GH_TOKEN: ${{ secrets.LEGACY_RELEASES_TOKEN }}
-          GH_REPO: ${{ env.LEGACY_REPOSITORY }}
-          VERSION: ${{ needs.build.outputs.version }}
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          notes="Moving pointer to the newest advisory database ($VERSION), published from https://github.com/$REPOSITORY, which is where this database now lives. This location is mirrored for clients up to composer-remediate 0.11 and stops being updated when composer-remediate 1.0 is released; newer clients read https://github.com/$REPOSITORY/releases/download/advisory-db-latest/advisories.sqlite by default, and a pinned CI configuration should move to that URL now."
-          if gh release view advisory-db-latest >/dev/null 2>&1; then
-            gh release upload advisory-db-latest out/advisories.sqlite out/advisories.sqlite.sha256 out/latest.json --clobber
-            gh release edit advisory-db-latest --notes "$notes"
-          else
-            gh release create advisory-db-latest out/advisories.sqlite out/advisories.sqlite.sha256 out/latest.json \
-              --title "Advisory database (latest)" --prerelease --notes "$notes"
           fi
 
   # A scheduled workflow fails quietly: nobody is watching the Actions tab at 04:00, and GitHub's own

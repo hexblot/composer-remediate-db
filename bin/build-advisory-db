@@ -1,0 +1,28 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * Builds the advisory database that `composer remediate` reads. Run `bin/build-advisory-db --help`.
+ */
+
+declare(strict_types=1);
+
+use Remediate\Channel\BuildCommand;
+use Symfony\Component\Console\Application;
+
+foreach ([__DIR__ . '/../vendor/autoload.php', __DIR__ . '/../../../autoload.php'] as $autoload) {
+    if (is_file($autoload)) {
+        require $autoload;
+        break;
+    }
+}
+if (!class_exists(Application::class)) {
+    fwrite(STDERR, "Run `composer install` first.\n");
+    exit(1);
+}
+
+$command = new BuildCommand();
+$application = new Application('build-advisory-db');
+$application->add($command);
+$application->setDefaultCommand((string) $command->getName(), true);
+exit($application->run());

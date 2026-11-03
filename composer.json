@@ -14,8 +14,27 @@
         "php": "^8.1",
         "ext-pdo_sqlite": "*",
         "ext-zip": "*",
-        "hexblot/composer-remediate": "0.11.0"
+        "composer/composer": "^2.9",
+        "hexblot/composer-remediate": "0.11.0",
+        "symfony/console": "^5.4 || ^6.4 || ^7.0 || ^8.0"
     },
+    "require-dev": {
+        "phpstan/phpstan": "^2.1",
+        "phpunit/phpunit": "^10.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "Remediate\\Channel\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Remediate\\Channel\\Tests\\": "tests/"
+        }
+    },
+    "bin": [
+        "bin/build-advisory-db"
+    ],
     "config": {
         "allow-plugins": {
             "hexblot/composer-remediate": true
@@ -23,7 +42,13 @@
         "sort-packages": true
     },
     "scripts": {
-        "build": "@composer remediate:db-build --output=out/advisories.sqlite"
+        "build": "@php bin/build-advisory-db --output=out/advisories.sqlite",
+        "test": "phpunit",
+        "phpstan": "phpstan analyse --memory-limit=1G",
+        "check": [
+            "@phpstan",
+            "@test"
+        ]
     },
     "minimum-stability": "stable",
     "prefer-stable": true
