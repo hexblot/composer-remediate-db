@@ -42,7 +42,7 @@ final class BuildCommand extends Command
                 new InputOption('enrich', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Exploit data to attach to the CVEs: epss (FIRST exploit probability), kev (CISA Known Exploited Vulnerabilities), or none (repeatable; default both)'),
                 new InputOption('epss-file', null, InputOption::VALUE_REQUIRED, 'Local copy of the EPSS scores CSV (plain or .gz) to read instead of downloading'),
                 new InputOption('kev-file', null, InputOption::VALUE_REQUIRED, 'Local copy of the CISA KEV catalogue JSON to read instead of downloading'),
-                new InputOption('temp-dir', null, InputOption::VALUE_REQUIRED, 'Where downloaded archives are kept while they are read (default: a fresh private directory under the system temporary directory, removed afterwards)'),
+                new InputOption('temp-dir', null, InputOption::VALUE_REQUIRED, 'Where downloaded archives are kept while they are read: a directory that does not exist yet, created for this build and removed afterwards (default: under the system temporary directory)'),
             ])
             ->setHelp(<<<'HELP'
 Pulls every advisory for the Packagist ecosystem from the selected feeds (plus any <info>--include</info>
@@ -88,9 +88,7 @@ HELP);
 
             return self::EXIT_FAILED;
         } finally {
-            if ($str('temp-dir') === null) {
-                self::remove($tempDir);
-            }
+            self::remove($tempDir);
         }
 
         $output->writeln(sprintf('<info>Advisory database written:</info> %s', $result['path']));
@@ -109,34 +107,25 @@ HELP);
 
     /**
      * Where the archives a feed downloads are unpacked. The feed readers name their files predictably
-     * inside it, so the directory itself has to be one nobody else can have prepared: by default a
-     * fresh directory created here, owner-only, that did not exist a moment ago; when the operator
-     * names one, a directory that is not a symbolic link and that this process could create or
-     * already owns.
+     * inside it, so the directory itself has to be one nobody else can have prepared: it is created
+     * here, owner-only, exclusively, and did not exist a moment ago. That holds for the default under
+     * the system temporary directory and for a directory the operator names; one that already exists
+     * is refused rather than inspected, since there is no test of an existing directory that says who
+     * prepared it on every platform. The build removes it afterwards.
      *
-     * @throws \InvalidArgumentException for a directory this will not write into
+     * @throws \InvalidArgumentException for a directory this will not create
      */
     private static function temporaryDirectory(?string $requested): string
     {
-        if ($requested === null) {
-            $dir = sys_get_temp_dir() . '/composer-remediate-db-' . bin2hex(random_bytes(8));
-            if (!@mkdir($dir, 0700)) {
-                throw new \InvalidArgumentException(sprintf('Cannot create a temporary directory at %s; pass --temp-dir.', $dir));
-            }
-
-            return $dir;
+        $dir = $requested ?? sys_get_temp_dir() . '/composer-remediate-db-' . bin2hex(random_bytes(8));
+        if (file_exists($dir) || is_link($dir)) {
+            throw new \InvalidArgumentException(sprintf('%s already exists; the temporary directory must be one this build creates. Name a path that does not exist yet, or leave --temp-dir out.', $dir));
         }
-        if (is_link($requested)) {
-            throw new \InvalidArgumentException(sprintf('--temp-dir=%s is a symbolic link; name the directory itself.', $requested));
-        }
-        if (!is_dir($requested) && !@mkdir($requested, 0700, true)) {
-            throw new \InvalidArgumentException(sprintf('Cannot create --temp-dir=%s.', $requested));
-        }
-        if (!is_writable($requested) || (function_exists('posix_geteuid') && fileowner($requested) !== posix_geteuid())) {
-            throw new \InvalidArgumentException(sprintf('--temp-dir=%s is not a directory this process owns and can write to.', $requested));
+        if (!@mkdir($dir, 0700, true)) {
+            throw new \InvalidArgumentException(sprintf('Cannot create the temporary directory %s.', $dir));
         }
 
-        return $requested;
+        return $dir;
     }
 
     private static function remove(string $dir): void

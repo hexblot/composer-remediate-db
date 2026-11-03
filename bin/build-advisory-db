@@ -23,6 +23,11 @@ if (!class_exists(Application::class)) {
 
 $command = new BuildCommand();
 $application = new Application('build-advisory-db');
-$application->add($command);
+// symfony/console 7.4 renamed add() to addCommand() and 8.0 removed the old name.
+if (method_exists($application, 'addCommand')) {
+    $application->addCommand($command);
+} else {
+    $application->add($command); // @phpstan-ignore method.notFound
+}
 $application->setDefaultCommand((string) $command->getName(), true);
 exit($application->run());
